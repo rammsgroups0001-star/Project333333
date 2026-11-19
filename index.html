@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RAMMS GROUPS // EYE-GAZE & BLINK ASSISTIVE OS v1.0</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#050811">
+
+  <!-- Pinned Stable MediaPipe Face Mesh with Iris Landmarks -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --bg-dark: #050811;
+      --panel-bg: rgba(10, 16, 28, 0.90);
+      --border-subtle: rgba(56, 189, 248, 0.30);
+      --accent-cyan: #38BDF8;
+      --accent-green: #10B981;
+      --accent-amber: #F59E0B;
+      --accent-red: #EF4444;
+      --text-primary: #F8FAFC;
+      --text-secondary: #94A3B8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Consolas, "Courier New", monospace;
+      user-select: none;
+    }
+
+    body, html {
+      width: 100vw;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+    }
+
+    #appStage {
+      position: relative;
+      width: 100vw;
+      height: 100dvh;
+      overflow: hidden;
+      background: #060A14;
+    }
+
+    /* Subtle background camera feed so user sees eye tracking clearly */
+    #camFeed {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.34;
+      transform: scaleX(-1);
+      z-index: 1;
+    }
+
+    #eyeCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* Top Telemetry Header */
+    .top-bar {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      right: 12px;
+      z-index: 20;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border-subtle);
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+
+    .brand-title {
+      font-size: 12px;
+      font-weight: bold;
+      color: var(--accent-cyan);
+      letter-spacing: 0.5px;
+    }
+
+    .brand-title span {
+      color: var(--accent-green);
+      font-size: 10px;
+    }
+
+    .telemetry-pills {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 10px;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #131D31;
+      border: 1px solid #263652;
+      color: var(--accent-green);
+    }
+
+    /* Output Speech / Typed Sentence Display */
+    .output-banner {
+      position: absolute;
+      top: 56px;
+      left: 12px;
+      right: 12px;
+      z-index: 18;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .output-label {
+      font-size: 10px;
+      color: var(--accent-amber);
+      font-weight: bold;
+    }
+
+    .output-text {
+      font-size: 15px;
+      font-weight: 900;
+      color: #FFFFFF;
+      letter-spacing: 0.5px;
+      flex: 1;
+      text-align: center;
+    }
+
+    /* 3x2 Interactive Eye-Gaze Tile Grid */
+    .gaze-grid {
+      position: absolute;
+      top: 104px;
+      bottom: 58px;
+      left: 14px;
+      right: 14px;
+      z-index: 15;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .gaze-tile {
+      position: relative;
+      background: rgba(13, 21, 38, 0.82);
+      border: 2px solid rgba(56, 189, 248, 0.28);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 10px;
+      transition: transform 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
+      cursor: pointer;
+    }
+
+    .gaze-tile.gaze-hover {
+      border-color: #38BDF8;
+      background: rgba(2, 132, 199, 0.28);
+      transform: scale(1.02);
+      box-shadow: 0 0 22px rgba(56, 189, 248, 0.35);
+    }
+
+    .gaze-tile.sos-tile {
+      border-color: rgba(239, 68, 68, 0.55);
+      background: rgba(127, 29, 29, 0.35);
+    }
+
+    .gaze-tile.sos-tile.gaze-hover {
+      border-color: #EF4444;
+      background: rgba(220, 38, 38, 0.45);
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.5);
+    }
+
+    .gaze-tile.triggered {
+      border-color: #10B981 !important;
+      background: rgba(16, 185, 129, 0.42) !important;
+    }
+
+    .tile-icon {
+      font-size: 26px;
+      margin-bottom: 6px;
+    }
+
+    .tile-title {
+      font-size: 14px;
+      font-weight: 900;
+      color: #F8FAFC;
+      letter-spacing: 0.6px;
+    }
+
+    .tile-sub {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    /* Blink Progress Ring inside focused tile */
+    .blink-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 5px;
+      width: 0%;
+      background: #10B981;
+      border-radius: 0 0 10px 10px;
+      transition: width 0.05s linear;
+    }
+
+    /* Floating Eye-Gaze Cursor */
+    #gazeCursor {
+      position: fixed;
+      width: 34px;
+      height: 34px;
+      border: 3px solid #38BDF8;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 50;
+      box-shadow: 0 0 14px #38BDF8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: border-color 0.1s ease, transform 0.06s linear;
+    }
+
+    #gazeCursor::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      background: #10B981;
+      border-radius: 50%;
+    }
+
+    #gazeCursor.blinking {
+      border-color: #10B981;
+      background: rgba(16, 185, 129, 0.25);
+      transform: translate(-50%, -50%) scale(0.8);
+    }
+
+    /* Bottom Control Bar */
+    .bottom-bar {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      right: 12px;
+      z-index: 20;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border-subtle);
+      padding: 7px 12px;
+      border-radius: 8px;
+    }
+
+    .guide-text {
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .guide-text strong {
+      color: var(--accent-cyan);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    button {
+      background: #1E293B;
+      border: 1px solid #334155;
+      color: #F8FAFC;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #0284C7;
+      border-color: #38BDF8;
+    }
+
+    @media (max-width: 640px) {
+      .gaze-grid {
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .tile-icon { font-size: 20px; margin-bottom: 3px; }
+      .tile-title { font-size: 12px; }
+      .output-text { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="appStage">
+    <video id="camFeed" autoplay playsinline muted></video>
+    <canvas id="eyeCanvas"></canvas>
+
+    <!-- Live Eye-Controlled Reticle Cursor -->
+    <div id="gazeCursor" style="left: 50vw; top: 50vh;"></div>
+
+    <!-- Top Header -->
+    <div class="top-bar">
+      <div class="brand-title">RAMMS GROUPS // EYE-GAZE &amp; BLINK OS <span>[ASSISTIVE NEURAL INTERFACE]</span></div>
+      <div class="telemetry-pills">
+        <span id="sysStatus" class="pill">STARTING...</span>
+        <span id="eyeState" class="pill" style="color:#38BDF8;">EYES: OPEN</span>
+        <span id="fpsCounter" class="pill">0 FPS</span>
+      </div>
+    </div>
+
+    <!-- Live Speech / Selection Banner -->
+    <div class="output-banner">
+      <div class="output-label">VOICE OUTPUT:</div>
+      <div class="output-text" id="outputDisplay">LOOK AT ANY BOX &amp; BLINK FOR 0.5s</div>
+      <button onclick="stopAlarm()">STOP ALARM</button>
+    </div>
+
+    <!-- 6 Eye-Gaze Assistive Action Tiles -->
+    <div class="gaze-grid" id="gazeGrid">
+      <div class="gaze-tile sos-tile" data-action="SOS" data-speech="Emergency! Please help immediately!" onclick="triggerTile(this)">
+        <div class="tile-icon">🚨</div>
+        <div class="tile-title">EMERGENCY SOS</div>
+        <div class="tile-sub">Triggers Loud Siren + Alert</div>
+        <div class="blink-bar"></div>
+      </div>
+
+      <div class="gaze-tile" data-action="WATER" data-speech="I need a glass of water, please." onclick="triggerTile(this)">
+        <div class="tile-icon">💧</div>
+        <div class="tile-title">NEED WATER</div>
+        <div class="tile-sub">Requests drinking water</div>
+        <div class="blink-bar"></div>
+      </div>
+
+      <div class="gaze-tile" data-action="DOCTOR" data-speech="Please call the doctor or nurse right now." onclick="triggerTile(this)">
+        <div class="tile-icon">🩺</div>
+        <div class="tile-title">CALL DOCTOR</div>
+        <div class="tile-sub">Medical assistance alert</div>
+        <div class="blink-bar"></div>
+      </div>
+
+      <div class="gaze-tile" data-action="YES" data-speech="Yes, I agree." onclick="triggerTile(this)">
+        <div class="tile-icon">✅</div>
+        <div class="tile-title">YES / OKAY</div>
+        <div class="tile-sub">Confirms positive response</div>
+        <div class="blink-bar"></div>
+      </div>
+
+      <div class="gaze-tile" data-action="NO" data-speech="No, thank you." onclick="triggerTile(this)">
+        <div class="tile-icon">❌</div>
+        <div class="tile-title">NO / STOP</div>
+        <div class="tile-sub">Declines or stops action</div>
+        <div class="blink-bar"></div>
+      </div>
+
+      <div class="gaze-tile" data-action="FINE" data-speech="I am feeling completely fine and comfortable." onclick="triggerTile(this)">
+        <div class="tile-icon">😊</div>
+        <div class="tile-title">I AM FINE</div>
+        <div class="tile-sub">Status normal &amp; comfortable</div>
+        <div class="blink-bar"></div>
+      </div>
+    </div>
+
+    <!-- Bottom Controls -->
+    <div class="bottom-bar">
+      <div class="guide-text">CONTROL: <strong>MOVE EYES / HEAD</strong> TO AIM • <strong>HOLD BLINK (0.45s)</strong> TO CLICK</div>
+      <div class="btn-row">
+        <button class="primary" onclick="recenterGaze()">RE-CENTER EYES</button>
+        <button onclick="startCamera()">RESTART CAM</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const video = document.getElementById('camFeed');
+  const canvas = document.getElementById('eyeCanvas');
+  const ctx = canvas.getContext('2d');
+  const gazeCursor = document.getElementById('gazeCursor');
+
+  const sysStatus = document.getElementById('sysStatus');
+  const eyeState = document.getElementById('eyeState');
+  const fpsCounter = document.getElementById('fpsCounter');
+  const outputDisplay = document.getElementById('outputDisplay');
+  const tiles = Array.from(document.querySelectorAll('.gaze-tile'));
+
+  let W = window.innerWidth;
+  let H = window.innerHeight;
+
+  function resizeCanvas() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // Web Audio API Synthesizer for Click Feedback & SOS Siren
+  let audioCtx = null;
+  let sirenInterval = null;
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  function playBeep(freq = 660, duration = 0.12) {
+    ensureAudio();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  }
+
+  function startSiren() {
+    stopAlarm();
+    let high = true;
+    playBeep(960, 0.25);
+    sirenInterval = setInterval(() => {
+      playBeep(high ? 720 : 980, 0.25);
+      high = !high;
+    }, 300);
+  }
+
+  function stopAlarm() {
+    if (sirenInterval) {
+      clearInterval(sirenInterval);
+      sirenInterval = null;
+    }
+  }
+
+  function speakText(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 1.04;
+    u.pitch = 1.0;
+    window.speechSynthesis.speak(u);
+  }
+
+  function triggerTile(tile) {
+    if (!tile) return;
+    const action = tile.dataset.action;
+    const speech = tile.dataset.speech;
+
+    outputDisplay.innerText = speech.toUpperCase();
+    tile.classList.add('triggered');
+    setTimeout(() => tile.classList.remove('triggered'), 650);
+
+    if (action === 'SOS') {
+      startSiren();
+    } else {
+      stopAlarm();
+      playBeep(780, 0.14);
+    }
+    speakText(speech);
+  }
+
+  function dist2D(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  // Calibration & Gaze State
+  let baseline = null;
+  let calibCount = 0;
+  let sumGazeX = 0, sumGazeY = 0, sumEAR = 0;
+
+  let smoothX = W * 0.5;
+  let smoothY = H * 0.5;
+  let focusedTile = null;
+  let blinkStartTime = 0;
+  let blinkTriggeredInCurrentClose = false;
+
+  function recenterGaze() {
+    baseline = null;
+    calibCount = 0;
+    sumGazeX = sumGazeY = sumEAR = 0;
+    smoothX = W * 0.5;
+    smoothY = H * 0.5;
+    gazeCursor.style.left = `${smoothX}px`;
+    gazeCursor.style.top = `${smoothY}px`;
+    playBeep(520, 0.1);
+  }
+
+  function processEyeGazeAndBlink(lm) {
+    // 1. Eye Aspect Ratio (EAR) for Blink Detection
+    const leftEAR = dist2D(lm[159], lm[145]) / (dist2D(lm[33], lm[133]) || 0.05);
+    const rightEAR = dist2D(lm[386], lm[374]) / (dist2D(lm[362], lm[263]) || 0.05);
+    const avgEAR = (leftEAR + rightEAR) * 0.5;
+
+    // 2. Hybrid Iris + Head Gaze Vector
+    // Iris centers: 468 (Left Iris), 473 (Right Iris) if available, else eye center
+    const leftIris = lm[468] || lm[159];
+    const rightIris = lm[473] || lm[386];
+
+    // Normalized Iris offset inside eye socket (0..1)
+    const leftSocketX = (leftIris.x - lm[33].x) / ((lm[133].x - lm[33].x) || 0.04);
+    const rightSocketX = (rightIris.x - lm[362].x) / ((lm[263].x - lm[362].x) || 0.04);
+    const irisOffsetX = (leftSocketX + rightSocketX) * 0.5;
+
+    // Combine Iris horizontal ratio with subtle nose-tip position for rock-solid control
+    const rawGazeX = (irisOffsetX * 0.65) + (lm[1].x * 0.35);
+    const rawGazeY = lm[1].y;
+
+    // Auto-calibrate center on first 15 frames
+    if (!baseline) {
+      calibCount++;
+      sumGazeX += rawGazeX;
+      sumGazeY += rawGazeY;
+      sumEAR += avgEAR;
+      sysStatus.innerText = `CALIBRATING (${Math.round((calibCount / 15) * 100)}%)`;
+
+      if (calibCount >= 15) {
+        baseline = {
+          gx: sumGazeX / calibCount,
+          gy: sumGazeY / calibCount,
+          ear: sumEAR / calibCount
+        };
+      }
+      return;
+    }
+
+    sysStatus.innerText = 'GAZE LOCKED';
+
+    // 3. Map Delta Gaze to Screen Coordinates (Mirrored X for natural front-cam feel)
+    const deltaX = -(rawGazeX - baseline.gx);
+    const deltaY = (rawGazeY - baseline.gy);
+
+    // High sensitivity amplification so slight eye/head movement covers full screen
+    let targetX = (W * 0.5) + (deltaX * W * 5.2);
+    let targetY = (H * 0.5) + (deltaY * H * 5.6);
+
+    targetX = Math.max(24, Math.min(W - 24, targetX));
+    targetY = Math.max(100, Math.min(H - 60, targetY));
+
+    // Freeze cursor position while eyes are closing for a blink so cursor doesn't jump downward!
+    const isBlinking = avgEAR < (baseline.ear * 0.66);
+
+    if (!isBlinking) {
+      smoothX += 0.24 * (targetX - smoothX);
+      smoothY += 0.24 * (targetY - smoothY);
+    }
+
+    gazeCursor.style.left = `${smoothX}px`;
+    gazeCursor.style.top = `${smoothY}px`;
+
+    // 4. Hit-Test Which Tile the Cursor is Looking At
+    let activeTile = null;
+    for (const tile of tiles) {
+      const rect = tile.getBoundingClientRect();
+      if (smoothX >= rect.left && smoothX <= rect.right && smoothY >= rect.top && smoothY <= rect.bottom) {
+        activeTile = tile;
+        break;
+      }
+    }
+
+    if (focusedTile !== activeTile) {
+      if (focusedTile) {
+        focusedTile.classList.remove('gaze-hover');
+        const oldBar = focusedTile.querySelector('.blink-bar');
+        if (oldBar) oldBar.style.width = '0%';
+      }
+      focusedTile = activeTile;
+      if (focusedTile) focusedTile.classList.add('gaze-hover');
+    }
+
+    // 5. Intentional Blink Click Logic (Hold blink for 450ms to click)
+    const now = performance.now();
+    if (isBlinking) {
+      eyeState.innerText = 'EYES: BLINKING';
+      eyeState.style.color = '#F59E0B';
+      gazeCursor.classList.add('blinking');
+
+      if (blinkStartTime === 0) {
+        blinkStartTime = now;
+        blinkTriggeredInCurrentClose = false;
+      }
+
+      const elapsed = now - blinkStartTime;
+      const progress = Math.min(100, (elapsed / 450) * 100);
+
+      if (focusedTile) {
+        const bar = focusedTile.querySelector('.blink-bar');
+        if (bar) bar.style.width = `${progress}%`;
+      }
+
+      if (elapsed >= 450 && !blinkTriggeredInCurrentClose && focusedTile) {
+        blinkTriggeredInCurrentClose = true;
+        triggerTile(focusedTile);
+      }
+    } else {
+      eyeState.innerText = 'EYES: OPEN';
+      eyeState.style.color = '#10B981';
+      gazeCursor.classList.remove('blinking');
+      blinkStartTime = 0;
+      blinkTriggeredInCurrentClose = false;
+
+      if (focusedTile) {
+        const bar = focusedTile.querySelector('.blink-bar');
+        if (bar) bar.style.width = '0%';
+      }
+    }
+
+    // 6. Draw Eye & Iris Reticle Overlay on Canvas
+    ctx.strokeStyle = isBlinking ? '#F59E0B' : '#38BDF8';
+    ctx.lineWidth = 2;
+    const eyePoints = [33, 133, 159, 145, 362, 263, 386, 374];
+    for (const idx of eyePoints) {
+      const px = (1 - lm[idx].x) * W;
+      const py = lm[idx].y * H;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    if (lm[468] && lm[473]) {
+      ctx.fillStyle = '#10B981';
+      [468, 473].forEach(idx => {
+        const px = (1 - lm[idx].x) * W;
+        const py = lm[idx].y * H;
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }
+
+  let frames = 0;
+  let lastFpsStamp = performance.now();
+
+  function onResults(results) {
+    frames++;
+    const now = performance.now();
+    if (now - lastFpsStamp >= 500) {
+      fpsCounter.innerText = `${Math.round((frames * 1000) / (now - lastFpsStamp))} FPS`;
+      frames = 0;
+      lastFpsStamp = now;
+    }
+
+    ctx.clearRect(0, 0, W, H);
+    const faces = results.multiFaceLandmarks || [];
+    if (faces.length === 0) {
+      sysStatus.innerText = 'LOOK AT CAMERA...';
+      return;
+    }
+
+    processEyeGazeAndBlink(faces[0]);
+  }
+
+  let faceMeshEngine = null;
+  let loopStarted = false;
+
+  async function initEngine() {
+    if (faceMeshEngine) return;
+    sysStatus.innerText = 'LOADING IRIS AI...';
+
+    faceMeshEngine = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`
+    });
+
+    faceMeshEngine.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true, // Enables 468-477 Iris Tracking
+      minDetectionConfidence: 0.55,
+      minTrackingConfidence: 0.55
+    });
+
+    faceMeshEngine.onResults(onResults);
+    await faceMeshEngine.initialize();
+    sysStatus.innerText = 'IRIS AI READY';
+  }
+
+  async function startCamera() {
+    sysStatus.innerText = 'OPENING CAMERA...';
+    try {
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 360 }
+        },
+        audio: false
+      });
+
+      video.srcObject = stream;
+      await new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          video.width = video.videoWidth || 640;
+          video.height = video.videoHeight || 360;
+          resolve();
+        };
+      });
+      await video.play();
+
+      await initEngine();
+
+      if (!loopStarted) {
+        loopStarted = true;
+        let busy = false;
+        async function processLoop() {
+          if (!busy && faceMeshEngine && video.readyState >= 2 && video.videoWidth > 0) {
+            busy = true;
+            try {
+              await faceMeshEngine.send({ image: video });
+            } catch (e) {}
+            busy = false;
+          }
+          requestAnimationFrame(processLoop);
+        }
+        requestAnimationFrame(processLoop);
+      }
+    } catch (err) {
+      sysStatus.innerText = 'CAMERA BLOCKED';
+      alert('Please open in Full-Screen and allow Camera permission in Chrome settings.');
+    }
+  }
+
+  window.addEventListener('load', startCamera);
+</script>
+</body>
+</html>
